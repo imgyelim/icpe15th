@@ -79,6 +79,62 @@ button.secondary{background:#eee9e2;color:#5d554c}
 .hidden{display:none}
 @media(max-width:700px){.grid{grid-template-columns:1fr}.day{min-height:65px;padding:5px}.event{font-size:9px}.tab{font-size:12px;padding:8px 11px}}
 </style>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL = "https://zijzthkxomyscbbgrjoi.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_pO6Da-DFOpVbA3ZdkcZtkQ_PjjYl4st";
+const supabaseClient = window.supabase.createClient(
+  SUPABASE_URL,
+  SUPABASE_PUBLISHABLE_KEY
+);
+
+const PRAYER_IDS = ["circle1","circle2","circle3","circle4"];
+
+async function recordSharedPrayer(prayerId, memberName) {
+  const { error } = await supabaseClient
+    .from("prayer_records")
+    .insert({ prayer_id: prayerId, member: memberName || null });
+  if (error) {
+    console.error("공용 기도 기록 저장 실패:", error);
+    throw error;
+  }
+}
+
+async function getSharedPrayerCounts() {
+  const counts = Object.fromEntries(PRAYER_IDS.map(id => [id, 0]));
+  const { data, error } = await supabaseClient
+    .from("prayer_records")
+    .select("prayer_id");
+  if (error) {
+    console.error("공용 기도 기록 불러오기 실패:", error);
+    return counts;
+  }
+  (data || []).forEach(row => {
+    if (counts[row.prayer_id] !== undefined) counts[row.prayer_id]++;
+  });
+  return counts;
+}
+
+async function refreshSharedPrayerCounts() {
+  const counts = await getSharedPrayerCounts();
+  Object.entries(counts).forEach(([id, count]) => {
+    const el = document.querySelector("#" + id + "Count");
+    if (el) el.textContent = count;
+  });
+  const total = Object.values(counts).reduce((a,b) => a+b, 0);
+  document.querySelectorAll("[data-shared-prayer-total]").forEach(el => {
+    el.textContent = total;
+  });
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  refreshSharedPrayerCounts();
+  // 다른 사람이 체크한 내용이 보이도록 15초마다 최신 집계 확인
+  setInterval(refreshSharedPrayerCounts, 15000);
+});
+</script>
+
 </head>
 <body>
 <header>
@@ -275,9 +331,17 @@ function renderPrayers(){
   const row=document.createElement("label");row.className="prayer";
   row.innerHTML=`<input class="check" type="checkbox" ${todayChecks[i]?"checked":""}>
    <div><div class="label">원의 ${i+1}: ${p}</div><div class="note">오늘 공통 기도 체크</div></div>`;
-  row.querySelector("input").onchange=e=>{
+  row.querySelector("input").onchange=async e=>{
    todayChecks[i]=e.target.checked;
    save();renderPrayers();renderDashboard();
+   if(e.target.checked){
+     try{
+       await recordSharedPrayer("circle"+(i+1), current);
+       await refreshSharedPrayerCounts();
+     }catch(err){
+       alert("공용 기도 기록 저장에 실패했습니다. 인터넷 연결과 Supabase 설정을 확인해주세요.");
+     }
+   }
   };
   wrap.appendChild(row);
  });
@@ -404,5 +468,12 @@ function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",
 function renderAll(){renderCurrentPrayer();renderDashboard();renderTabs();renderPrayers();renderPersonalLock();renderChallenges();renderCalendar()}
 renderAll();
 </script>
+
+<div id="sharedSyncNotice" style="position:fixed;bottom:12px;right:12px;z-index:9999;
+background:#fffaf2;border:1px solid #d8c7aa;border-radius:12px;padding:8px 12px;
+font-size:12px;color:#6b5a43;box-shadow:0 3px 12px rgba(0,0,0,.08);">
+  ☁ 공동기도 누적 연결됨
+</div>
+
 </body>
 </html>
